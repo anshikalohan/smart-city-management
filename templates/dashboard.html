@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart City Dashboard - Traffic Insights</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="header">
+            <h1>Smart City Dashboard</h1>
+            <p>Real-time Traffic & Urban Insights</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Left Column: Search & Prediction -->
+            <section class="glass-panel form-section">
+                <h2>Traffic Insights</h2>
+                <form method="POST" id="dashboardForm" class="search-form">
+                    <div class="form-group">
+                        <label for="place_name">Place Name (Optional)</label>
+                        <input type="text" id="place_name" name="place_name" placeholder="E.g., Mumbai, New York" value="{{ request.form.get('place_name', '') }}">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="latitude">Latitude</label>
+                            <input type="text" id="latitude" name="latitude" placeholder="e.g. 19.0760" value="{{ request.form.get('latitude', '') }}">
+                        </div>
+                        <div class="form-group">
+                            <label for="longitude">Longitude</label>
+                            <input type="text" id="longitude" name="longitude" placeholder="e.g. 72.8777" value="{{ request.form.get('longitude', '') }}">
+                        </div>
+                    </div>
+                    
+                    <button type="button" id="locationBtn" class="btn btn-secondary">
+                        <span class="icon">📍</span> Use My Current Location
+                    </button>
+                    
+                    <div class="form-group mt-4">
+                        <label for="future_hour">Predict Traffic for Hour (0-23)</label>
+                        <input type="number" id="future_hour" name="future_hour" placeholder="Enter hour (0-23)" min="0" max="23" value="{{ request.form.get('future_hour', '') }}">
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                        Get Traffic Prediction
+                        <div class="spinner" id="spinner" style="display:none;"></div>
+                    </button>
+                </form>
+
+                {% if error %}
+                    <div class="alert alert-error">
+                        {{ error }}
+                    </div>
+                {% endif %}
+            </section>
+
+            <!-- Right Column: Results Grid -->
+            <section class="results-grid">
+                
+                {% if congestion_data %}
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Current Traffic</h3>
+                        <span class="live-badge">Live</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="location-name">{{ place_name }}</p>
+                        <div class="metric-value">
+                            <span class="number">{{ congestion_data['currentSpeed'] }}</span>
+                            <span class="unit">km/h</span>
+                        </div>
+                        <p class="metric-label">Current Speed</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if prediction %}
+                <div class="glass-panel metric-card prediction-card">
+                    <div class="card-header">
+                        <h3>Predicted Traffic</h3>
+                        <span class="time-badge">{{ prediction.future_hour }}:00</span>
+                    </div>
+                    <div class="prediction-grid">
+                        <div class="pred-item">
+                            <span class="pred-label">Speed</span>
+                            <span class="pred-val">{{ prediction.predicted_speed }}<small>km/h</small></span>
+                        </div>
+                        <div class="pred-item">
+                            <span class="pred-label">Reduction</span>
+                            <span class="pred-val">{{ prediction.speed_reduction }}<small>km/h</small></span>
+                        </div>
+                        <div class="pred-item">
+                            <span class="pred-label">Congestion</span>
+                            <span class="pred-val">{{ prediction.congestion_score }}<small>%</small></span>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Energy Optimization</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if region %}
+                            <p class="region-name">{{ region|capitalize }} India</p>
+                            {% if energy_consumption %}
+                                <div class="energy-display">
+                                    <p class="metric-label">Current Power Consumption</p>
+                                    <div class="metric-value">
+                                        <span class="number">{{ "{:,.0f}".format(energy_consumption) }}</span>
+                                        <span class="unit">MW</span>
+                                    </div>
+                                </div>
+                            {% else %}
+                                <p class="alert-warning">⚠️ Energy data unavailable</p>
+                            {% endif %}
+                        {% else %}
+                            <p class="empty-state">Enter a location in India to see energy data</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="glass-panel metric-card">
+                    <div class="card-header">
+                        <h3>Public Safety</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="people-count">
+                            <span class="metric-label">Estimated Crowd Density</span>
+                            <div class="metric-value">
+                                <span class="number">{{ estimated_people if estimated_people is not none else '--' }}</span>
+                                <span class="unit">people</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if request.form.get('latitude') and request.form.get('longitude') and not error %}
+                <div class="glass-panel map-card">
+                    <div id="map" 
+                         data-lat="{{ request.form.get('latitude') }}" 
+                         data-lon="{{ request.form.get('longitude') }}">
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="glass-panel news-card">
+                    <div class="card-header">
+                        <h3>Public Safety News</h3>
+                    </div>
+                    <div class="news-list">
+                        {% if public_safety_news %}
+                            {% for article in public_safety_news %}
+                                <a href="{{ article.link }}" target="_blank" class="news-item">
+                                    <h4>{{ article.title }}</h4>
+                                    <small>{{ article.pubDate }}</small>
+                                </a>
+                            {% endfor %}
+                        {% else %}
+                            <p class="empty-state">No public safety news found.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
